@@ -642,7 +642,7 @@ def main(demo: bool = False, pretty_print: bool = True, draw: bool = True) -> No
     # Phrase structure rules
     rules = """
         S -> NP VP
-        NP -> (D) (AP) N
+        NP -> (D) (AP) N (PP)
         VP -> V (NP) (AP) (PP)
         AP -> (DEG) A
         PP -> P NP
@@ -681,4 +681,4 @@ def main(demo: bool = False, pretty_print: bool = True, draw: bool = True) -> No
 
 
 if __name__ == "__main__":
-    main(draw=False)
+    main(draw=True, demo=True)
