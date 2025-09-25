@@ -642,10 +642,11 @@ def main(demo: bool = False, pretty_print: bool = True, draw: bool = True) -> No
     # Phrase structure rules
     rules = """
         S -> NP VP
-        NP -> (D) (AP) N (PP)
-        VP -> V (NP) (AP) (PP)
-        AP -> (DEG) A
-        PP -> P NP
+        NP -> (D) (AP) N (PP) (CP)
+        VP -> V (NP) (AP) (PP) (CP)
+        AP -> (DEG) A (PP) (CP)
+        PP -> P NP | P CP
+        CP -> C S
         """
 
     # Example sentence
@@ -682,3 +683,10 @@ def main(demo: bool = False, pretty_print: bool = True, draw: bool = True) -> No
 
 if __name__ == "__main__":
     main(draw=True, demo=True)
+    # Some unusual scholars by a very purple building wondered about whether those tall trees were near the crate of sesame-pecan-spice-cookies
+    # D A N P D Deg A N V P C D A N V P D N P N
+
+    # TODO: Add support for {} choices
+    # TODO: Possibly add support for N-N compounds
+    # TODO: Add block testing option
+    # TODO: Handle duplicate terminal rules
