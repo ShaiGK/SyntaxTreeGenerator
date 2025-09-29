@@ -657,32 +657,36 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
         pos_tags_list = [input("Enter POS tags: ")]
         print()
     else:
-        sentence_list = ["Sarah 's cat yawned",
-                         "A very smart woman 's cat yawned",
-                         "We noticed a really cute chipmunk",
-                         "*We noticed really cute a chipmunk",
-                         "Sidney borrowed that unusual professor 's quite old pen",
-                         "*Sidney borrowed quite old that unusual professor 's pen",
-                         "*Sidney borrowed that unusual professor 's a quite old pen",
-                         "*Sidney borrowed a that unusual professor 's quite old pen",
-                         "Everyone told us about the little child 's orange sweater",
-                         "This reader of science-fiction 's book-bag delights me",
-                         "That grey squirrel 's very little paw 's prints are on the snow",
-                         "Henry sees the incredibly interesting book 's broken spine 's stitching 's very frayed edge 's colors",
-                         "The man that we saw ’s pig by the bush seemed happy"]
-        pos_tags_list = ["N Pos N V",
-                         "D Deg A N Pos N V",
-                         "N V D Deg A N",
-                         "N V Deg A D N",
-                         "N V D A N Pos Deg A N",
-                         "N V Deg A D A N Pos N",
-                         "N V D A N Pos D Deg A N",
-                         "N V D D A N Pos Deg A N",
-                         "N V N P D A N Pos A N",
-                         "D N P N Pos N V N",
-                         "D A N Pos Deg A N Pos N V P D N",
-                         "N V D Deg A N Pos A N Pos N Pos Deg A N Pos N",
-                         "D N C N V Pos N P D N V A"]
+        sentence_list = [
+            "Sarah 's cat yawned",
+            "A very smart woman 's cat yawned",
+            "We noticed a really cute chipmunk",
+            "*We noticed really cute a chipmunk",
+            "Sidney borrowed that unusual professor 's quite old pen",
+            "*Sidney borrowed quite old that unusual professor 's pen",
+            "*Sidney borrowed that unusual professor 's a quite old pen",
+            "*Sidney borrowed a that unusual professor 's quite old pen",
+            "Everyone told us about the little child 's orange sweater",
+            "This reader of science-fiction 's book-bag delights me",
+            "That grey squirrel 's very little paw 's prints are on the snow",
+            "Henry sees the incredibly interesting book 's broken spine 's stitching 's very frayed edge 's colors",
+            "The man that we saw ’s pig by the bush seemed happy"
+        ]
+        pos_tags_list = [
+            "N Pos N V",
+            "D Deg A N Pos N V",
+            "N V D Deg A N",
+            "N V Deg A D N",
+            "N V D A N Pos Deg A N",
+            "N V Deg A D A N Pos N",
+            "N V D A N Pos D Deg A N",
+            "N V D D A N Pos Deg A N",
+            "N V N P D A N Pos A N",
+            "D N P N Pos N V N",
+            "D A N Pos Deg A N Pos N V P D N",
+            "N V D Deg A N Pos A N Pos N Pos Deg A N Pos N",
+            "D N C N V Pos N P D N V A"
+        ]
 
     # Check there are the same number of sentences and POS tags.
     assert len(sentence_list) == len(pos_tags_list), "Please ensure same number of sentences and POS tags."
@@ -734,7 +738,7 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
 
 
 if __name__ == "__main__":
-    main(demo=False, display=True, draw=False)
+    main(demo=False, display=True, draw=True)
 
     # the yellow children saw a small cup by the extremely funny bicycles
     # D A N V D A N P D DEG A N
