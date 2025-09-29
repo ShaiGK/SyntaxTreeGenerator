@@ -321,7 +321,7 @@ def convert_to_cnf(grammar: dict[str, list[list[str]]]) -> tuple[dict[str, list[
     return cnf_grammar, helper_symbols
 
 
-def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[list[dict[str, list]]]:
+def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[list[dict[str, set]]]:
     """
     Parses a sequence of tokens using the CYK parsing algorithm with the provided
     context-free grammar. The algorithm builds a parse table that represents
@@ -344,22 +344,22 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
         are nonterminal symbols (strings) and values are lists of productions
         (each production is a list of terminal and/or nonterminal symbols).
     :return: A 2D table representing possible derivations. Each cell in the
-        table is a dictionary mapping nonterminal symbols (strings) to a list
+        table is a dictionary mapping nonterminal symbols (strings) to a set
         of derivations (backpointers) for that span.
     """
 
     n = len(tokens)
     # Table[i][j] = dict mapping Nonterminal -> list of backpointers
     # span from i (inclusive) to j (exclusive)
-    table = [[defaultdict(list) for _ in range(n + 1)] for _ in range(n)]
+    table = [[defaultdict(set) for _ in range(n + 1)] for _ in range(n)]
 
     # Precompute inverse grammar: RHS -> LHS rules
-    inverse = defaultdict(list)
+    inverse = defaultdict(set)
     for lhs, productions in grammar.items():
         for rhs in productions:
-            inverse[tuple(rhs)].append(lhs)
+            inverse[tuple(rhs)].add(lhs)
 
-    def apply_unary_closure(cell: dict[str, list]) -> None:
+    def apply_unary_closure(cell: dict[str, set]) -> None:
         """
         Applies a unary closure operation on the given cell dictionary. The function modifies
         the dictionary in place by iterating through the keys in the input and appending
@@ -376,14 +376,14 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
             if rhs in seen:
                 continue
             for lhs in inverse.get((rhs,), []):
-                cell[lhs].append(("unary", rhs))
+                cell[lhs].add(("unary", rhs))
                 key_copy.append(lhs)
                 seen.add(rhs)
 
     # Fill diagonal with preterminals
     for i, word in enumerate(tokens):
         for lhs in inverse.get((word,), []):
-            table[i][i + 1][lhs].append(("terminal", word))
+            table[i][i + 1][lhs].add(("terminal", word))
         apply_unary_closure(table[i][i + 1])
 
     # Fill larger spans
@@ -397,7 +397,7 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
                 for B in left_cell:
                     for C in right_cell:
                         for lhs in inverse.get((B, C), []):
-                            table[i][j][lhs].append(("binary", k, B, C))
+                            table[i][j][lhs].add(("binary", k, B, C))
 
             apply_unary_closure(table[i][j])
 
@@ -624,7 +624,7 @@ def display_parses(parse_trees: list[str], pretty_print: bool = True, draw: bool
             print("Please enter a valid number or 'no'.")
 
 
-def main(demo: bool = False, pretty_print: bool = True, draw: bool = True) -> None:
+def main(demo: bool = False, display: bool = True, pretty_print: bool = True, draw: bool = True) -> None:
     """
     Parses a sentence using a context-free grammar (CFG), converts it to Chomsky Normal 
     Form (CNF), and performs the CYK parsing algorithm to extract all possible parse trees 
@@ -643,50 +643,113 @@ def main(demo: bool = False, pretty_print: bool = True, draw: bool = True) -> No
     rules = """
         S -> NP VP
         NP -> (D) (AP) N (PP) (CP)
+        NP -> PosP (AP) N (PP) (CP)
         VP -> V (NP) (AP) (PP) (CP)
         AP -> (DEG) A (PP) (CP)
         PP -> P NP | P CP
         CP -> C S
+        PosP -> NP POS
         """
 
     # Example sentence
     if demo:
-        sentence = input("Enter a sentence: ").split()
-        pos_tags = input("Enter POS tags: ").upper().split()
+        sentence_list = [input("Enter a sentence: ")]
+        pos_tags_list = [input("Enter POS tags: ")]
         print()
     else:
-        sentence = "the yellow children saw a small cup by the extremely funny bicycles".split()
-        pos_tags = "D A N V D A N P D DEG A N".upper().split()
+        sentence_list = ["Sarah 's cat yawned",
+                         "A very smart woman 's cat yawned",
+                         "We noticed a really cute chipmunk",
+                         "*We noticed really cute a chipmunk",
+                         "Sidney borrowed that unusual professor 's quite old pen",
+                         "*Sidney borrowed quite old that unusual professor 's pen",
+                         "*Sidney borrowed that unusual professor 's a quite old pen",
+                         "*Sidney borrowed a that unusual professor 's quite old pen",
+                         "Everyone told us about the little child 's orange sweater",
+                         "This reader of science-fiction 's book-bag delights me",
+                         "That grey squirrel 's very little paw 's prints are on the snow",
+                         "Henry sees the incredibly interesting book 's broken spine 's stitching 's very frayed edge 's colors",
+                         "The man that we saw ’s pig by the bush seemed happy"]
+        pos_tags_list = ["N Pos N V",
+                         "D Deg A N Pos N V",
+                         "N V D Deg A N",
+                         "N V Deg A D N",
+                         "N V D A N Pos Deg A N",
+                         "N V Deg A D A N Pos N",
+                         "N V D A N Pos D Deg A N",
+                         "N V D D A N Pos Deg A N",
+                         "N V N P D A N Pos A N",
+                         "D N P N Pos N V N",
+                         "D A N Pos Deg A N Pos N V P D N",
+                         "N V D Deg A N Pos A N Pos N Pos Deg A N Pos N",
+                         "D N C N V Pos N P D N V A"]
 
-    # Terminal additions to the PSRs
-    assert len(sentence) == len(pos_tags), "Please ensure same length for sentence and pos_tags."
-    rule_set = {f'{tag} -> "{word}"' for word, tag in zip(sentence, pos_tags)}
-    rules += '\n' + '\n'.join(rule_set)
+    # Check there are the same number of sentences and POS tags.
+    assert len(sentence_list) == len(pos_tags_list), "Please ensure same number of sentences and POS tags."
 
-    # Parse rules and convert to CNF
-    grammar = parse_rules(rules)
-    cnf, helpers = convert_to_cnf(grammar)
+    print(f"Parsing {len(sentence_list)} {"sentence" if len(sentence_list) == 1 else "sentences"}:")
 
-    # Run CYK
-    table = cyk_parse(sentence, cnf)
+    parse_list: list[list[str]] = []
 
-    # Extract bracketed parses
-    trees = extract_trees(table, sentence, start_symbol="S")
-    print(f"Found {len(trees)} parse(s):")
+    for idx, (sentence, pos_tags) in enumerate(zip(sentence_list, pos_tags_list)):
+        print()
+        if sentence.startswith("*"):
+            grammatical = False
+            sentence = sentence[1:]
+        else:
+            grammatical = True
+        print(f"Parsing ({"" if grammatical else "un"}grammatical) sentence number {idx + 1}: {sentence}")
 
-    # Format and clean parses for display
-    parse_strs = [format_tree(t, helper_symbols=helpers) for t in trees]
+        sentence = sentence.split()
+        pos_tags = pos_tags.upper().split()
+        new_rules = rules
 
-    # Display results
-    display_parses(parse_strs, pretty_print=pretty_print, draw=draw)
+        # Terminal additions to the PSRs
+        assert len(sentence) == len(pos_tags), "Please ensure same length for sentence and pos_tags."
+        rule_set = {f'{tag} -> "{word}"' for word, tag in zip(sentence, pos_tags)}
+        new_rules += '\n' + '\n'.join(rule_set)
+
+        # Parse rules and convert to CNF
+        grammar = parse_rules(new_rules)
+        cnf, helpers = convert_to_cnf(grammar)
+
+        # Run CYK
+        table = cyk_parse(sentence, cnf)
+
+        # Extract bracketed parses
+        trees = extract_trees(table, sentence, start_symbol="S")
+
+        print(f"Found {len(trees)} parse(s):")
+        expected = (grammatical and len(trees) > 0) or (not grammatical and len(trees) == 0)
+        if not expected:
+            print("THIS IS NOT EXPECTED.")
+
+        # Format and clean parses for display and store them
+        parse_strs = [format_tree(t, helper_symbols=helpers) for t in trees]
+        parse_list.append(parse_strs)
+
+        # Display results
+        if display:
+            display_parses(parse_strs, pretty_print=pretty_print, draw=draw)
 
 
 if __name__ == "__main__":
-    main(draw=True, demo=True)
+    main(demo=False, display=True, draw=False)
+
+    # the yellow children saw a small cup by the extremely funny bicycles
+    # D A N V D A N P D DEG A N
+
     # Some unusual scholars by a very purple building wondered about whether those tall trees were near the crate of sesame-pecan-spice-cookies
     # D A N P D Deg A N V P C D A N V P D N P N
+
+    # That grey squirrel 's very little paw 's prints are on the snow
+    # D A N POS DEG A N POS N V P D N
 
     # TODO: Add support for {} choices
     # TODO: Possibly add support for N-N compounds
     # TODO: Add block testing option
     # TODO: Handle duplicate terminal rules
+    # TODO: Split POS off of N
+    # TODO: Cut down on duplicate helper nodes
+    # TODO: Add display choice after bulk run
+    # TODO: Add summary after bulk run
