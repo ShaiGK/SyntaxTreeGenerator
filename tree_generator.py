@@ -658,6 +658,8 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
         print()
     else:
         sentence_list = [
+            "The yellow children saw a small cup by the extremely funny bicycles",
+            "Some unusual scholars by a very purple building wondered about whether those tall trees were near the crate of sesame-pecan-spice-cookies",
             "Sarah 's cat yawned",
             "A very smart woman 's cat yawned",
             "We noticed a really cute chipmunk",
@@ -673,6 +675,8 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
             "The man that we saw ’s pig by the bush seemed happy"
         ]
         pos_tags_list = [
+            "D A N V D A N P D DEG A N",
+            "D A N P D Deg A N V P C D A N V P D N P N",
             "N Pos N V",
             "D Deg A N Pos N V",
             "N V D Deg A N",
@@ -738,16 +742,7 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
 
 
 if __name__ == "__main__":
-    main(demo=False, display=True, draw=True)
-
-    # the yellow children saw a small cup by the extremely funny bicycles
-    # D A N V D A N P D DEG A N
-
-    # Some unusual scholars by a very purple building wondered about whether those tall trees were near the crate of sesame-pecan-spice-cookies
-    # D A N P D Deg A N V P C D A N V P D N P N
-
-    # That grey squirrel 's very little paw 's prints are on the snow
-    # D A N POS DEG A N POS N V P D N
+    main(demo=False, display=False, draw=False)
 
     # TODO: Add support for {} choices
     # TODO: Possibly add support for N-N compounds
