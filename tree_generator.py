@@ -404,7 +404,7 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
     return table
 
 
-def extract_trees(table: list[list[dict[str, list]]], tokens: list[str], start_symbol: str = "S") -> list[
+def extract_trees(table: list[list[dict[str, set]]], tokens: list[str], start_symbol: str = "S") -> list[
     tuple[str, str | tuple, tuple | None]]:
     """
     Extracts all parse trees from a CYK parsing table for a given sentence and start symbol.
@@ -415,7 +415,7 @@ def extract_trees(table: list[list[dict[str, list]]], tokens: list[str], start_s
     structures, representing how they relate to underlying symbols in the parse tree.
 
     :param table: A CYK parsing table represented as a 2D list of dictionaries. Each cell
-        (table[i][j]) maps non-terminal symbols (str) to a list of backpointer structures.
+        (table[i][j]) maps non-terminal symbols (str) to a set of backpointer structures.
     :param tokens: A list of terminal symbols (tokens) corresponding to the sentence being parsed.
     :param start_symbol: The start symbol in the grammar used for parsing the given sentence.
         Defaults to "S".
