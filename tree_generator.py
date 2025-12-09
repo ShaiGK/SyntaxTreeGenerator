@@ -771,6 +771,5 @@ if __name__ == "__main__":
     # TODO: Add block testing option
     # TODO: Handle duplicate terminal rules
     # TODO: Split POS off of N
-    # TODO: Cut down on duplicate helper nodes
     # TODO: Add display choice after bulk run
     # TODO: Add summary after bulk run
