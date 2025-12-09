@@ -4,6 +4,8 @@ from functools import lru_cache
 
 from nltk import Tree
 
+import data.data as data
+
 # Node type: either a plain symbol string, or a tuple ('GROUP', optional:bool, children:list[node_or_string])
 Node = str | tuple[str, bool, list['Node']]  # ('GROUP', optional, children)
 
@@ -225,23 +227,23 @@ def parse_rules(rules_string: str) -> dict[str, list[list[str]]]:
 
     grammar: dict[str, list[list[str]]] = {}
     lines = rules_string.splitlines()
-    for lineno, raw in enumerate(lines, start=1):
+    for line_idx, raw in enumerate(lines, start=1):
         line = raw.strip()
         if not line or line.startswith('#'):
             continue
         # split on '->' first (only first occurrence)
         if '->' not in line:
-            raise ValueError(f"Line {lineno}: missing '->' in rule: {line}")
+            raise ValueError(f"Line {line_idx}: missing '->' in rule: {line}")
         lhs_part, rhs_part = line.split('->', 1)
         lhs = lhs_part.strip()
         if lhs == '':
-            raise ValueError(f"Line {lineno}: empty LHS in rule: {line}")
+            raise ValueError(f"Line {line_idx}: empty LHS in rule: {line}")
         # split top-level alternatives
         alternatives = split_top_level(rhs_part.strip(), sep='|')
         for alt in alternatives:
             alt = alt.strip()
             if alt == '':
-                raise ValueError(f"Line {lineno}: empty RHS alternative in rule: {line}")
+                raise ValueError(f"Line {line_idx}: empty RHS alternative in rule: {line}")
             # tokenize alternative (handles nested parentheses)
             nodes = tokenize_alternative(alt)
             # expand into explicit symbol sequences
@@ -283,7 +285,9 @@ def convert_to_cnf(grammar: dict[str, list[list[str]]]) -> tuple[dict[str, list[
     new_symbol_counter = itertools.count(1)
     helper_symbols = set()
 
-    def add_rule(lhs: str, rhs: list[str]) -> None:
+    helper_cache = {}
+
+    def add_rule(lhs: str, rhs: tuple[str, ...]) -> None:
         """
         Adds a production rule to the context-free grammar (CFG). The rule associates a
         left-hand side (LHS) symbol with its corresponding right-hand side (RHS) production.
@@ -295,33 +299,39 @@ def convert_to_cnf(grammar: dict[str, list[list[str]]]) -> tuple[dict[str, list[
         :return: None
         """
 
-        cnf_grammar.setdefault(lhs, []).append(rhs)
+        cnf_grammar.setdefault(lhs, set()).add(rhs)
+
+    def get_helper_symbol(rhs: tuple[str, ...]) -> str:
+        if rhs in helper_cache:
+            return helper_cache[rhs]
+        new_sym = f"X{next(new_symbol_counter)}"
+        helper_cache[rhs] = new_sym
+        helper_symbols.add(new_sym)
+        return new_sym
 
     for lhs, productions in grammar.items():
         for rhs in productions:
-            if len(rhs) == 1:
-                # Unary or terminal rule (keep as-is)
-                add_rule(lhs, rhs)
-            elif len(rhs) == 2:
-                # Already binary
-                add_rule(lhs, rhs)
-            else:
-                # Break down into binary rules with helper nodes
-                prev_symbol = rhs[0]
-                for i in range(1, len(rhs) - 1):
-                    new_sym = f"{lhs}_X{next(new_symbol_counter)}"
-                    helper_symbols.add(new_sym)
-                    if i == 1:
-                        add_rule(lhs, [rhs[i - 1], new_sym])
-                    else:
-                        add_rule(prev_symbol, [rhs[i - 1], new_sym])
-                    prev_symbol = new_sym
-                add_rule(prev_symbol, rhs[-2:])  # last pair
+            if len(rhs) <= 2:
+                # Binary, Unary or terminal rule (keep as-is)
+                add_rule(lhs, tuple(rhs))
+                continue
+
+            # Break down into binary rules with helper nodes
+            last_pair = tuple(rhs[-2:])
+            prev = get_helper_symbol(last_pair)
+            add_rule(prev, last_pair)
+
+            for i in range(len(rhs) - 3, 0, -1):
+                segment = tuple(rhs[i:i + 1] + [prev])
+                curr = get_helper_symbol(segment)
+                add_rule(curr, (rhs[i], prev))
+                prev = curr
+            add_rule(lhs, (rhs[0], prev))
 
     return cnf_grammar, helper_symbols
 
 
-def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[list[dict[str, set]]]:
+def cyk_parse(tokens: list[str], grammar: dict[str, set[list[str]]]) -> list[list[dict[str, set]]]:
     """
     Parses a sequence of tokens using the CYK parsing algorithm with the provided
     context-free grammar. The algorithm builds a parse table that represents
@@ -341,7 +351,7 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
 
     :param tokens: List of terminal symbols (input sequence) to parse.
     :param grammar: Context-free grammar rules defined as a dictionary where keys
-        are nonterminal symbols (strings) and values are lists of productions
+        are nonterminal symbols (strings) and values are sets of productions
         (each production is a list of terminal and/or nonterminal symbols).
     :return: A 2D table representing possible derivations. Each cell in the
         table is a dictionary mapping nonterminal symbols (strings) to a set
@@ -357,7 +367,7 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
     inverse = defaultdict(set)
     for lhs, productions in grammar.items():
         for rhs in productions:
-            inverse[tuple(rhs)].add(lhs)
+            inverse[rhs].add(lhs)
 
     def apply_unary_closure(cell: dict[str, set]) -> None:
         """
@@ -365,7 +375,7 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
         the dictionary in place by iterating through the keys in the input and appending
         new relationships based on predefined inverse mappings.
 
-        :param cell: A dictionary where each key is a string and the associated value 
+        :param cell: A dictionary where each key is a string and the associated value
             is a list of tuples indicating relationships for unary closure operation.
         :returns: None
         """
@@ -404,90 +414,125 @@ def cyk_parse(tokens: list[str], grammar: dict[str, list[list[str]]]) -> list[li
     return table
 
 
-def extract_trees(table: list[list[dict[str, set]]], tokens: list[str], start_symbol: str = "S") -> list[
-    tuple[str, str | tuple, tuple | None]]:
+def extract_trees(table: list[list[dict[str, set]]],
+                  tokens: list[str],
+                  start_symbol: str = "S") -> tuple:
     """
-    Extracts all parse trees from a CYK parsing table for a given sentence and start symbol.
+    Returns (count, generator) where:
+      - count is the exact number of parse trees (computed by DP)
+      - generator yields parse trees lazily, one at a time
 
-    The function employs a recursive approach to construct all valid parse trees based on
-    backpointers stored in the CYK parsing table. The parsing table must consist of cells
-    where each cell contains possible non-terminal symbols and their associated backpointer
-    structures, representing how they relate to underlying symbols in the parse tree.
-
-    :param table: A CYK parsing table represented as a 2D list of dictionaries. Each cell
-        (table[i][j]) maps non-terminal symbols (str) to a set of backpointer structures.
-    :param tokens: A list of terminal symbols (tokens) corresponding to the sentence being parsed.
-    :param start_symbol: The start symbol in the grammar used for parsing the given sentence.
-        Defaults to "S".
-    :return: A list of parse trees, each represented as tuples. The structure of the tuples
-        depends on the production type:
-        - ("terminal", word): Represents a terminal word.
-        - ("unary", subtree): Represents a unary production with a non-terminal subtree.
-        - ("binary", left_subtree, right_subtree): Represents a binary production with left
-          and right subtrees.
+    The table format expected: table[i][j] maps symbol -> set of backpointer tuples,
+    where backpointer is one of:
+      ("terminal", word)
+      ("unary", rhs_symbol)
+      ("binary", split_k, B, C)
     """
 
     n = len(tokens)
 
     @lru_cache(maxsize=None)
-    def build(symbol: str, i: int, j: int) -> list[tuple[str, str | tuple, tuple | None]]:
-        """
-        Recursively builds a list of parse trees based on a given symbol and its span
-        indices in a CYK parsing table. The function utilizes memoization for efficiency
-        via the `@lru_cache` decorator.
-
-        :param symbol: The non-terminal symbol for which parse trees are being generated.
-        :param i: The start index of the span in the parsing table.
-        :param j: The end index of the span in the parsing table.
-        :return: A list of parse trees, each represented as a tuple. Each tuple's structure 
-            depends on the type of backpointer:
-            - ("terminal", word): Represents a terminal word.
-            - ("unary", (non-terminal)): Represents a unary production.
-            - ("binary", (left-tree, right-tree)): Represents a binary production.
-        """
-
-        if i < 0 or j > n or i >= j and j != i + 1:
-            return []
-
+    def count(symbol: str, i: int, j: int) -> int:
+        if i < 0 or j > n or (i >= j and j != i + 1):
+            return 0
         cell = table[i][j]
         if symbol not in cell:
-            return []
+            return 0
+        total = 0
+        for bp in cell[symbol]:
+            kind = bp[0]
+            if kind == "terminal":
+                total += 1
+            elif kind == "unary":
+                rhs = bp[1]
+                total += count(rhs, i, j)
+            elif kind == "binary":
+                _, k, B, C = bp
+                total += count(B, i, k) * count(C, k, j)
+            else:
+                raise ValueError(f"Unknown backpointer kind: {kind}")
+        return total
 
-        results = []
-        backptrs = cell[symbol]
+    total_trees = count(start_symbol, 0, n)
 
-        # iterate over each backpointer option for this symbol in this cell
+    # gen_state maps (symbol,i,j) -> dict with keys: cache(list), producer(generator or None), finished(bool)
+    gen_state: dict[tuple[str, int, int], dict] = {}
+
+    def node_producer(symbol: str, i: int, j: int):
+        """
+        Generator that produces parse trees for (symbol, i, j).
+        It uses recursive calls to yield children via yield_from_node.
+        """
+        cell = table[i][j]
+        backptrs = cell.get(symbol, ())
         for bp in backptrs:
             kind = bp[0]
             if kind == "terminal":
-                # ("terminal", word)
                 word = bp[1]
-                results.append((symbol, word))
+                # yield a terminal-tree representation
+                yield (symbol, word)
 
             elif kind == "unary":
-                # ("unary", rhs_symbol)
                 rhs = bp[1]
-                # build all subtrees for rhs in same span
-                rhs_trees = build(rhs, i, j)
-                for rt in rhs_trees:
-                    results.append((symbol, rt))
+                # delegate to rhs's generator
+                for child in yield_from_node(rhs, i, j):
+                    yield (symbol, child)
 
             elif kind == "binary":
-                # ("binary", split_k, B, C)
                 _, k, B, C = bp
-                left_trees = build(B, i, k)
-                right_trees = build(C, k, j)
-                for lt in left_trees:
-                    for rt in right_trees:
-                        results.append((symbol, lt, rt))
-
+                # We need to produce cartesian product of lefts and rights lazily.
+                # We'll iterate lefts; for each left we iterate rights, caching rights so they can be replayed.
+                # Use the helper yield_from_node for both children.
+                # We must be mindful that both left and right are themselves lazy caches.
+                left_iter = yield_from_node(B, i, k)
+                # iterate left trees as they are produced
+                for left in left_iter:
+                    # For each left, iterate right trees by calling yield_from_node.
+                    # yield_from_node will return cached rights first and then produce more as needed.
+                    for right in yield_from_node(C, k, j):
+                        yield (symbol, left, right)
             else:
-                # unknown backpointer type. ignore or raise
                 raise ValueError(f"Unknown backpointer kind: {kind}")
 
-        return results
+    def yield_from_node(symbol: str, i: int, j: int):
+        """
+        Iterator that yields parse trees for (symbol,i,j), using incremental caching.
+        """
+        key = (symbol, i, j)
+        if key not in gen_state:
+            # initialize state and create producer generator (but do not start it)
+            gen_state[key] = {'cache': [], 'producer': node_producer(symbol, i, j), 'finished': False}
 
-    return build(start_symbol, 0, n)
+        state = gen_state[key]
+
+        # First yield from already cached results
+        for item in state['cache']:
+            yield item
+
+        if state['finished']:
+            return
+
+        # Pull new items from the producer one at a time, append to cache, yield each.
+        prod = state['producer']
+        try:
+            while True:
+                next_item = next(prod)
+                state['cache'].append(next_item)
+                yield next_item
+        except StopIteration:
+            state['finished'] = True
+            return
+
+    # top-level generator that yields trees for start symbol
+    def tree_generator():
+        # If there are zero trees, return nothing
+        if total_trees == 0:
+            return
+            yield  # keep this a generator
+        for tree in yield_from_node(start_symbol, 0, n):
+            yield tree
+
+    return total_trees, tree_generator()
 
 
 def format_tree(tree: tuple[str | tuple, ...], helper_symbols: set[str] | None = None) -> str:
@@ -549,10 +594,10 @@ def format_tree(tree: tuple[str | tuple, ...], helper_symbols: set[str] | None =
         Otherwise, it processes the children recursively to create a nested
         representation.
 
-        :param node: The input tuple representing a node. The first element is 
-            its label, and the subsequent elements are its children, which 
+        :param node: The input tuple representing a node. The first element is
+            its label, and the subsequent elements are its children, which
             can either be strings or nested nodes.
-        :return: A string representation of the given node, including 
+        :return: A string representation of the given node, including
             its label and the stringified children.
         """
 
@@ -624,32 +669,29 @@ def display_parses(parse_trees: list[str], pretty_print: bool = True, draw: bool
             print("Please enter a valid number or 'no'.")
 
 
-def main(demo: bool = False, display: bool = True, pretty_print: bool = True, draw: bool = True) -> None:
+def main(demo: bool = False, display: bool = True, pretty_print: bool = True, draw: bool = True,
+         rules: str = None, sentence_list: list = None, pos_tags_list: list = None) -> None:
     """
-    Parses a sentence using a context-free grammar (CFG), converts it to Chomsky Normal 
-    Form (CNF), and performs the CYK parsing algorithm to extract all possible parse trees 
+    Parses a sentence using a context-free grammar (CFG), converts it to Chomsky Normal
+    Form (CNF), and performs the CYK parsing algorithm to extract all possible parse trees
     for the input sentence. Additionally, it formats, cleans, and optionally draws the parse trees.
 
-    :param demo: If True, prompts the user to provide a sentence and its corresponding 
+    :param demo: If True, prompts the user to provide a sentence and its corresponding
         part-of-speech (POS) tags. Defaults to False.
-    :param pretty_print: If True, formats the parse trees for better readability in output. 
+    :param display: If True, displays the parse trees in bracket notation and optionally
+        allows users to view them interactively. Defaults to True.
+    :param pretty_print: If True, formats the parse trees for better readability in output.
         Defaults to True.
-    :param draw: If True, generates graphical visualizations of the parsed trees. 
+    :param draw: If True, generates graphical visualizations of the parsed trees.
         Defaults to True.
+    :param rules: An optional string containing the context-free grammar rules. Defaults to None.
+    :param sentence_list: An optional list of sentences to parse. Defaults to None.
+    :param pos_tags_list: An optional list of POS tags corresponding Îto the sentences. Defaults to None.
     :return: None
     """
 
     # Phrase structure rules
-    rules = """
-        S -> NP VP
-        NP -> (D) (AP) N (PP) (CP)
-        NP -> PosP (AP) N (PP) (CP)
-        VP -> V (NP) (AP) (PP) (CP)
-        AP -> (DEG) A (PP) (CP)
-        PP -> P NP | P CP
-        CP -> C S
-        PosP -> NP POS
-        """
+    rules = data.rules if rules is None else rules
 
     # Example sentence
     if demo:
@@ -657,40 +699,8 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
         pos_tags_list = [input("Enter POS tags: ")]
         print()
     else:
-        sentence_list = [
-            "The yellow children saw a small cup by the extremely funny bicycles",
-            "Some unusual scholars by a very purple building wondered about whether those tall trees were near the crate of sesame-pecan-spice-cookies",
-            "Sarah 's cat yawned",
-            "A very smart woman 's cat yawned",
-            "We noticed a really cute chipmunk",
-            "*We noticed really cute a chipmunk",
-            "Sidney borrowed that unusual professor 's quite old pen",
-            "*Sidney borrowed quite old that unusual professor 's pen",
-            "*Sidney borrowed that unusual professor 's a quite old pen",
-            "*Sidney borrowed a that unusual professor 's quite old pen",
-            "Everyone told us about the little child 's orange sweater",
-            "This reader of science-fiction 's book-bag delights me",
-            "That grey squirrel 's very little paw 's prints are on the snow",
-            "Henry sees the incredibly interesting book 's broken spine 's stitching 's very frayed edge 's colors",
-            "The man that we saw ’s pig by the bush seemed happy"
-        ]
-        pos_tags_list = [
-            "D A N V D A N P D DEG A N",
-            "D A N P D Deg A N V P C D A N V P D N P N",
-            "N Pos N V",
-            "D Deg A N Pos N V",
-            "N V D Deg A N",
-            "N V Deg A D N",
-            "N V D A N Pos Deg A N",
-            "N V Deg A D A N Pos N",
-            "N V D A N Pos D Deg A N",
-            "N V D D A N Pos Deg A N",
-            "N V N P D A N Pos A N",
-            "D N P N Pos N V N",
-            "D A N Pos Deg A N Pos N V P D N",
-            "N V D Deg A N Pos A N Pos N Pos Deg A N Pos N",
-            "D N C N V Pos N P D N V A"
-        ]
+        sentence_list = data.sentence_list if sentence_list is None else sentence_list
+        pos_tags_list = data.pos_tags_list if pos_tags_list is None else pos_tags_list
 
     # Check there are the same number of sentences and POS tags.
     assert len(sentence_list) == len(pos_tags_list), "Please ensure same number of sentences and POS tags."
@@ -719,15 +729,27 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
 
         # Parse rules and convert to CNF
         grammar = parse_rules(new_rules)
+        print("Grammar created successfully.")
         cnf, helpers = convert_to_cnf(grammar)
+        print("Grammar converted to CNF successfully.")
 
         # Run CYK
         table = cyk_parse(sentence, cnf)
+        print("CYK parsing completed successfully.")
 
         # Extract bracketed parses
-        trees = extract_trees(table, sentence, start_symbol="S")
+        count, gen = extract_trees(table, sentence, start_symbol="S")
 
-        print(f"Found {len(trees)} parse(s):")
+        print("Parse extraction completed successfully.")
+        if count <= 50:
+            trees = list(gen)
+        else:
+            trees = []
+            for _, t in zip(range(50), gen):
+                trees.append(t)
+            print(f"{count} trees found. There is no way I'm showing that... Here are the first 50 instead.")
+
+        print(f"Found {count} parse(s):")
         expected = (grammatical and len(trees) > 0) or (not grammatical and len(trees) == 0)
         if not expected:
             print("THIS IS NOT EXPECTED.")
@@ -742,7 +764,7 @@ def main(demo: bool = False, display: bool = True, pretty_print: bool = True, dr
 
 
 if __name__ == "__main__":
-    main(demo=False, display=False, draw=False)
+    main(demo=False, display=True, draw=True)
 
     # TODO: Add support for {} choices
     # TODO: Possibly add support for N-N compounds
